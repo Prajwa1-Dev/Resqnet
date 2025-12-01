@@ -1,0 +1,227 @@
+<!-- ✅ ResQNet Hospital Dashboard -->
+<section class="bg-white p-6 mb-8 rounded-xl shadow-md border border-gray-200">
+  <h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+    🏥 <%= hospital.name %>
+  </h2>
+  <div class="grid sm:grid-cols-2 gap-3 text-gray-700">
+    <p><strong>📍 Address:</strong> <%= hospital.address %></p>
+    <p><strong>📞 Contact:</strong> <%= hospital.contactNumber %></p>
+    <p><strong>🛏️ Available Beds:</strong>
+      <span id="bedStatus" class="font-semibold text-blue-700"><%= hospital.availableBeds %></span>
+    </p>
+    <p><strong>📅 Last Updated:</strong> <%= hospital.updatedAt.toLocaleString() %></p>
+  </div>
+</section>
+
+<!-- 🛏️ Update Bed Availability -->
+<section class="mb-8 bg-white p-6 rounded-xl shadow-md border border-gray-200">
+  <h3 class="text-xl font-semibold text-gray-800 mb-3 border-b pb-2">🛏️ Update Bed Availability</h3>
+  <form id="bedForm" class="flex flex-col sm:flex-row gap-4 items-center justify-between">
+    <input
+      id="availableBeds"
+      name="availableBeds"
+      type="number"
+      min="0"
+      value="<%= hospital.availableBeds %>"
+      class="border rounded-lg p-2 w-full sm:w-auto text-gray-700 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+    />
+    <button type="submit"
+      class="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700 transition font-semibold shadow">
+      Update
+    </button>
+  </form>
+</section>
+
+<!-- 🚨 Active & Incoming Emergencies -->
+<section class="bg-white p-6 rounded-xl shadow-md border border-gray-200">
+  <h3 class="text-2xl font-semibold text-gray-800 mb-4 border-b pb-3">
+    🚨 Active & Incoming Emergencies
+  </h3>
+
+  <div id="alerts-container" class="space-y-6">
+    <% if (emergencies.length > 0) { %>
+      <% emergencies.forEach(emergency => { %>
+        <div id="emergency-<%= emergency._id %>" class="bg-red-50 border-l-4 border-red-500 p-5 rounded-md shadow hover:shadow-lg transition transform hover:scale-[1.01]">
+          <p class="font-bold text-lg mb-2 text-red-700">🚨 Emergency Alert</p>
+
+          <p><strong>Description:</strong> <%= emergency.description %></p>
+
+          <% if (emergency.aiSummary) { %>
+            <p><strong>AI Summary:</strong> <%= emergency.aiSummary %></p>
+          <% } %>
+
+          <p><strong>Status:</strong>
+            <span id="status-<%= emergency._id %>" class="font-semibold text-blue-700"><%= emergency.status %></span>
+          </p>
+
+          <p><strong>ETA:</strong>
+            <span id="eta-<%= emergency._id %>" class="font-semibold text-gray-800"><%= emergency.eta || '—' %></span>
+          </p>
+
+          <p><strong>Last Updated:</strong>
+            <span id="time-<%= emergency._id %>" class="text-gray-600"><%= emergency.updatedAt.toLocaleString() %></span>
+          </p>
+
+          <!-- 🗺️ Map container -->
+          <div id="map-<%= emergency._id %>" class="w-full h-64 mt-4 rounded-lg border border-gray-300 shadow-sm"></div>
+
+          <!-- ⚙️ Action Buttons -->
+          <div class="mt-4 flex flex-wrap gap-3">
+            <a href="/emergency/track/<%= emergency.trackingToken %>" target="_blank"
+              class="bg-blue-500 text-white font-bold py-1.5 px-4 rounded text-sm hover:bg-blue-600 transition">
+              🔍 Open Full Tracker
+            </a>
+          </div>
+        </div>
+      <% }) %>
+    <% } else { %>
+      <p id="no-alerts-msg" class="text-center text-gray-500 py-10">
+        No active emergencies. Waiting for incoming alerts...
+      </p>
+    <% } %>
+  </div>
+</section>
+
+
+
+<!-- 🗺️ Leaflet & Socket.IO -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+
+<!-- 🔥 LIVE SCRIPT -->
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const socket = io();
+  const hospitalId = "<%= hospital._id %>";
+  const maps = {};
+
+  // 🏥 Join hospital room
+  socket.emit("joinRoom", hospitalId);
+  console.log("🏥 Joined hospital room:", hospitalId);
+
+  // 🌍 Initialize maps for each emergency (incident + hospital + ambulance)
+  const emergencies = <%- JSON.stringify(emergencies || []) %>;
+
+  emergencies.forEach((em) => {
+    const mapId = `map-${em._id}`;
+    const container = document.getElementById(mapId);
+    if (!container || !em.location || !em.location.coordinates) return;
+
+    const [lng, lat] = em.location.coordinates;
+
+    const map = L.map(mapId).setView([lat, lng], 13);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+    }).addTo(map);
+
+    // 🚨 Incident marker
+    const incidentMarker = L.marker([lat, lng], {
+      title: "Emergency Location",
+    }).addTo(map);
+
+    // 🏥 Hospital marker (current hospital)
+    let hospitalMarker = null;
+    if (em.assignedHospital && em.assignedHospital.location && em.assignedHospital.location.coordinates) {
+      const [hLng, hLat] = em.assignedHospital.location.coordinates;
+      hospitalMarker = L.marker([hLat, hLng], {
+        icon: L.icon({
+          iconUrl: "/images/hospital-icon.png",
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+        }),
+        title: em.assignedHospital.name || "Assigned Hospital",
+      }).addTo(map);
+    }
+
+    // 🚑 Ambulance marker (if we know its current location)
+    let ambMarker = null;
+    if (
+      em.assignedAmbulance &&
+      em.assignedAmbulance.location &&
+      Array.isArray(em.assignedAmbulance.location.coordinates)
+    ) {
+      const [aLng, aLat] = em.assignedAmbulance.location.coordinates;
+      ambMarker = L.marker([aLat, aLng], {
+        icon: L.icon({
+          iconUrl: "/images/ambulance-icon.png",
+          iconSize: [30, 30],
+          iconAnchor: [15, 15],
+        }),
+        title: "Ambulance",
+      }).addTo(map);
+    }
+
+    // Fit all visible markers
+    const pts = [[lat, lng]];
+    if (hospitalMarker) {
+      const h = hospitalMarker.getLatLng();
+      pts.push([h.lat, h.lng]);
+    }
+    if (ambMarker) {
+      const a = ambMarker.getLatLng();
+      pts.push([a.lat, a.lng]);
+    }
+    map.fitBounds(pts, { padding: [25, 25] });
+
+    maps[em._id] = {
+      map,
+      incidentMarker,
+      hospitalMarker,
+      ambMarker,
+    };
+
+    setTimeout(() => map.invalidateSize(), 100);
+  });
+
+  // 🚑 Live ambulance location
+  socket.on("ambulance-location-update", (data) => {
+    const { emergencyId, coordinates } = data;
+
+    if (!maps[emergencyId]) return;
+
+    const { map, ambMarker } = maps[emergencyId];
+    if (!ambMarker) return;
+
+    ambMarker.setLatLng([coordinates.lat, coordinates.lng]);
+    map.setView([coordinates.lat, coordinates.lng], 14);
+  });
+
+  // 🔄 Live status updates
+  socket.on("status-update", (data) => {
+    const { emergencyId, status, eta, updatedAt } = data;
+
+    if (document.getElementById(`status-${emergencyId}`)) {
+      document.getElementById(`status-${emergencyId}`).textContent = status;
+      document.getElementById(`eta-${emergencyId}`).textContent = eta || "—";
+      document.getElementById(`time-${emergencyId}`).textContent =
+        new Date(updatedAt).toLocaleString();
+    }
+  });
+
+  // 🆕 New emergency assigned LIVE
+  socket.on("new-alert", (emergency) => {
+    alert(`🚨 New Emergency Assigned: ${emergency.description}`);
+    location.reload(); // reload to display new card
+  });
+
+  // 🛏 Update Bed Status
+  const bedForm = document.getElementById("bedForm");
+  bedForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const value = document.getElementById("availableBeds").value;
+
+    const res = await fetch(`/hospital/update-bed-status/${hospitalId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ availableBeds: Number(value) }),
+    });
+
+    if (res.ok) {
+      document.getElementById("bedStatus").textContent = value;
+      alert("🛏 Bed availability updated!");
+    }
+  });
+});
+</script>

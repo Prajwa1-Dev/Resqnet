@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ResQNet | Report Emergency</title>
+  <link rel="stylesheet" href="/stylesheets/output.css" />
+</head>
+
+<body class="bg-gray-100 text-gray-800">
+
+  <!-- HERO SECTION -->
+  <section class="flex flex-col md:flex-row items-center justify-between max-w-6xl mx-auto mt-10 px-6">
+    <div class="md:w-1/2 mb-8 md:mb-0">
+      <h2 class="text-3xl md:text-4xl font-bold mb-4 text-gray-800">
+        Real-time Emergency Coordination <br class="hidden md:block" /> Powered by ResQNet.
+      </h2>
+      <p class="text-gray-600 mb-6 leading-relaxed">
+        Report emergencies instantly. ResQNet alerts responders and hospitals using accurate live location.
+      </p>
+      <a href="#report-section" class="bg-red-600 text-white px-6 py-3 rounded-md font-medium hover:bg-red-700 transition">
+        Report an Emergency
+      </a>
+    </div>
+
+    <div class="md:w-1/2 flex justify-center">
+      <img src="/images/emergency-map.jpeg" alt="Emergency Response" class="w-80 md:w-96">
+    </div>
+  </section>
+
+  <!-- REPORT FORM SECTION -->
+  <section id="report-section" class="bg-white mt-16 py-12 shadow-inner">
+    <div class="max-w-lg mx-auto px-6">
+      <h3 class="text-2xl font-semibold text-center text-gray-800 mb-6">Report an Emergency</h3>
+
+      <!-- ⭐ START OF FORM -->
+      <form id="reportForm" enctype="multipart/form-data" class="space-y-5">
+
+        <!-- Description -->
+        <div>
+          <label class="block mb-1 text-gray-700 font-medium">Description</label>
+          <textarea
+            id="description"
+            name="description"
+            class="w-full border border-gray-300 rounded-md p-3 focus:ring-2 focus:ring-red-400"
+            rows="4"
+            placeholder="Describe what happened..."
+            required
+          ></textarea>
+        </div>
+
+        <!-- Location -->
+        <div>
+          <label class="block mb-1 text-gray-700 font-medium">Location</label>
+
+          <div class="grid grid-cols-2 gap-4 mb-2">
+            <div>
+              <label class="text-sm font-medium">Latitude</label>
+              <input
+                id="latitude"
+                name="latitude"
+                type="text"
+                class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-red-400"
+                placeholder="16.43"
+                required
+              >
+            </div>
+
+            <div>
+              <label class="text-sm font-medium">Longitude</label>
+              <input
+                id="longitude"
+                name="longitude"
+                type="text"
+                class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-red-400"
+                placeholder="74.59"
+                required
+              >
+            </div>
+          </div>
+
+          <button
+            type="button"
+            id="gpsBtn"
+            class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-md font-bold"
+          >
+            Use My Current Location (Optional)
+          </button>
+        </div>
+
+        <!-- Guest Contact -->
+        <div>
+          <label class="block mb-1 text-gray-700 font-medium">Your Contact</label>
+          <input
+            id="guestContact"
+            name="guestContact"
+            type="text"
+            class="w-full border border-gray-300 rounded-md p-3 focus:ring-2 focus:ring-red-400"
+            placeholder="Phone (10 digits) or Gmail"
+            required
+          >
+        </div>
+
+        <!-- Photo Upload -->
+        <div>
+          <label class="block mb-1 text-gray-700 font-medium">Upload Photo (optional)</label>
+          <input
+            type="file"
+            id="photo"
+            name="photo"
+            accept="image/*"
+            class="w-full border border-gray-300 rounded-md p-2 file:mr-4 file:py-2 file:px-4 
+                   file:rounded-md file:border-0 file:font-semibold file:bg-red-100 file:text-red-700 
+                   hover:file:bg-red-200"
+          >
+        </div>
+
+        <!-- SUBMIT BUTTON -->
+        <button
+          type="submit"
+          class="w-full bg-red-600 text-white py-3 rounded-md font-semibold hover:bg-red-700 transition"
+        >
+          Submit Report
+        </button>
+      </form>
+      <!-- ⭐ END OF FORM -->
+
+      <!-- SUCCESS -->
+      <div id="successMsg" class="hidden mt-6 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-md">
+        ✅ Emergency reported successfully! Redirecting...
+      </div>
+
+      <!-- ERROR -->
+      <div id="errorMsg" class="hidden mt-6 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-md">
+        ❌ Failed to send report. Please try again.
+      </div>
+
+    </div>
+  </section>
+
+  <!-- CLIENT SCRIPT -->
+  <script>
+document.addEventListener("DOMContentLoaded", () => {
+
+  const gpsBtn = document.getElementById("gpsBtn");
+  const latInput = document.getElementById("latitude");
+  const lonInput = document.getElementById("longitude");
+  const form = document.getElementById("reportForm");
+  const guestContact = document.getElementById("guestContact");
+  const successMsg = document.getElementById("successMsg");
+  const errorMsg = document.getElementById("errorMsg");
+
+  // ⭐ Use GPS
+  gpsBtn.addEventListener("click", () => {
+    if (!navigator.geolocation)
+      return alert("Geolocation not supported.");
+
+    gpsBtn.textContent = "Fetching...";
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        latInput.value = pos.coords.latitude;
+        lonInput.value = pos.coords.longitude;
+        gpsBtn.textContent = "Location Set!";
+        gpsBtn.classList.replace("bg-blue-500", "bg-green-600");
+      },
+      () => {
+        alert("GPS access denied.");
+        gpsBtn.textContent = "Use My Current Location";
+      }
+    );
+  });
+
+  // ⭐ SUBMIT REPORT → REDIRECT WITH trackingToken
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    errorMsg.classList.add("hidden");
+    successMsg.classList.add("hidden");
+
+    const contact = guestContact.value.trim();
+    const isPhone = /^\d{10}$/.test(contact);
+    const isGmail = /^[a-zA-Z0-9._%+-]+@gmail.com$/.test(contact);
+
+    if (!isPhone && !isGmail) {
+      alert("Enter valid 10-digit phone or Gmail.");
+      return;
+    }
+
+    const formData = new FormData(form);
+
+    try {
+      const res = await fetch("/emergency/report", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.redirected) {
+        throw new Error("Unexpected server response.");
+      }
+
+      // The server *already* redirects correctly using trackingToken
+      // We just follow that redirect
+      window.location.href = res.url;
+
+    } catch (err) {
+      console.error(err);
+      errorMsg.classList.remove("hidden");
+    }
+  });
+});
+</script>
+
+</body>
+
+</html>

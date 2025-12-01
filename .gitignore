@@ -1,0 +1,18 @@
+# dependencies
+node_modules/
+
+# environment variables
+.env
+
+# system files
+.DS_Store
+Thumbs.db
+
+# logs
+logs
+*.log
+
+# runtime data
+pids
+*.pid
+*.seed

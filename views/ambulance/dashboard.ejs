@@ -1,0 +1,178 @@
+<section class="p-5">
+  <h2 class="text-2xl font-bold mb-4">🚑 Ambulance Dashboard</h2>
+
+  <% if (!emergencies.length) { %>
+    <p class="text-gray-500">No emergencies assigned.</p>
+  <% } %>
+
+  <% emergencies.forEach(em => { %>
+    <div class="bg-blue-50 border-l-4 border-blue-600 p-4 mb-6 rounded shadow">
+      <p><strong>ID:</strong> <%= em._id %></p>
+      <p><strong>Description:</strong> <%= em.description %></p>
+
+      <p><strong>Status:</strong>
+        <span id="status-<%= em._id %>" class="text-blue-700 font-semibold">
+          <%= em.status %>
+        </span>
+      </p>
+
+      <div id="map-<%= em._id %>" class="w-full h-72 mt-3 border rounded"></div>
+
+      <div class="mt-4 flex gap-3">
+        <button onclick="startTracking('<%= em._id %>')"
+          class="bg-green-600 text-white px-4 py-2 rounded">
+          ▶️ Start Tracking
+        </button>
+
+        <select id="statusSelect-<%= em._id %>" class="border p-2 rounded">
+          <option value="OnRoute">On Route</option>
+          <option value="Arrived">Arrived</option>
+          <option value="Completed">Completed</option>
+        </select>
+
+        <button onclick="updateStatus('<%= em._id %>')"
+          class="bg-blue-600 text-white px-4 py-2 rounded">
+          🔄 Update
+        </button>
+      </div>
+    </div>
+  <% }) %>
+</section>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="/socket.io/socket.io.js"></script>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const socket = io();
+  const maps = {};
+
+  const ambulanceId = "<%= ambulanceId %>";
+  // Join ambulance-specific room for targeted dispatches
+  socket.emit("joinRoom", ambulanceId);
+  console.log("🚑 Joined ambulance room:", ambulanceId);
+
+  const emergencies = <%- JSON.stringify(emergencies || []) %>;
+
+  emergencies.forEach((em) => {
+    const mapId = `map-${em._id}`;
+    const container = document.getElementById(mapId);
+    if (!container || !em.location || !em.location.coordinates) return;
+
+    const [lng, lat] = em.location.coordinates;
+
+    const map = L.map(mapId).setView([lat, lng], 14);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+    }).addTo(map);
+
+    // 🟥 Incident location marker
+    const incidentMarker = L.marker([lat, lng], {
+      title: "Incident Location",
+    }).addTo(map);
+
+    // 🏥 Hospital marker (if assigned + has location)
+    let hospitalMarker = null;
+    if (em.assignedHospital && em.assignedHospital.location && em.assignedHospital.location.coordinates) {
+      const [hLng, hLat] = em.assignedHospital.location.coordinates;
+      hospitalMarker = L.marker([hLat, hLng], {
+        icon: L.icon({
+          iconUrl: "/images/hospital-icon.png",
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+        }),
+        title: em.assignedHospital.name || "Assigned Hospital",
+      }).addTo(map);
+    }
+
+    // 🚑 Ambulance marker: start at ambulance's current location if known, else at incident
+    let ambLat = lat;
+    let ambLng = lng;
+    if (
+      em.assignedAmbulance &&
+      em.assignedAmbulance.location &&
+      Array.isArray(em.assignedAmbulance.location.coordinates)
+    ) {
+      ambLng = em.assignedAmbulance.location.coordinates[0];
+      ambLat = em.assignedAmbulance.location.coordinates[1];
+    }
+
+    const ambMarker = L.marker([ambLat, ambLng], {
+      icon: L.icon({
+        iconUrl: "/images/ambulance-icon.png",
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+      }),
+      title: "Ambulance",
+    }).addTo(map);
+
+    // Fit bounds to show all three where available
+    const points = [[lat, lng]];
+    if (hospitalMarker) {
+      const hPos = hospitalMarker.getLatLng();
+      points.push([hPos.lat, hPos.lng]);
+    }
+    points.push([ambLat, ambLng]);
+    map.fitBounds(points, { padding: [30, 30] });
+
+    // Store markers for live updates
+    maps[em._id] = { map, incidentMarker, hospitalMarker, ambMarker };
+
+    // Fix rendering issues when maps are in flex/hidden containers
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 100);
+  });
+
+  window.startTracking = (id) => {
+    const m = maps[id];
+
+    if (!m || !m.ambMarker) return;
+
+    let lat = m.ambMarker.getLatLng().lat - 0.02;
+    let lng = m.ambMarker.getLatLng().lng - 0.02;
+
+    setInterval(async () => {
+      lat += (Math.random() - 0.3) * 0.002;
+      lng += (Math.random() - 0.3) * 0.002;
+
+      m.ambMarker.setLatLng([lat, lng]);
+      m.map.setView([lat, lng]);
+
+      // Send to backend so it can fan-out to all rooms (admin, hospital, track)
+      try {
+        await fetch("/ambulance/send-location", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ emergencyId: id, lat, lng }),
+        });
+      } catch (e) {
+        console.error("Location send failed", e);
+      }
+    }, 3000);
+  };
+
+  window.updateStatus = async (id) => {
+    const status = document.getElementById(`statusSelect-${id}`).value;
+
+    await fetch("/ambulance/update-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ emergencyId: id, status })
+    });
+
+    document.getElementById(`status-${id}`).textContent = status;
+    alert("Status updated!");
+  };
+
+  // 🚨 Receive new dispatch in real time
+  socket.on("new-dispatch", (emergency) => {
+    if (!emergency || !emergency._id) return;
+    alert(`🚨 New Dispatch Assigned:\n${emergency.description}`);
+    // Simple implementation: reload to show new emergency card
+    window.location.reload();
+  });
+});
+</script>

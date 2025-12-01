@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ResQNet | <%- typeof title !== 'undefined' ? title : 'Smart Emergency Response' %></title>
+
+
+  <!-- Tailwind CSS -->
+  <link rel="stylesheet" href="/stylesheets/output.css" />
+
+  <!-- Favicon -->
+  <link rel="icon" href="/images/favicon.ico" type="image/x-icon" />
+
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+
+  <!-- Leaflet Map CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <!-- Page-level custom CSS if needed -->
+  <style>
+    body {
+      scroll-behavior: smooth;
+    }
+    .nav-active {
+      color: #dc2626;
+      font-weight: 600;
+    }
+    /* Ensure sticky header always stays above Leaflet maps */
+    header.sticky {
+      z-index: 2000;
+    }
+    /* Keep admin map and other maps visually below the nav */
+    #controlMap .leaflet-pane,
+    #controlMap .leaflet-top,
+    #controlMap .leaflet-bottom {
+      z-index: 10 !important;
+    }
+  </style>
+</head>
+
+<body class="bg-gray-50 text-gray-800 font-sans min-h-screen flex flex-col">
+  <!-- ================= HEADER ================= -->
+  <header class="bg-white shadow-md sticky top-0 z-50">
+    <nav class="container mx-auto px-6 py-4">
+      <div class="flex justify-between items-center">
+        <!-- Logo -->
+        <a href="/" class="text-2xl font-bold text-red-600 hover:text-red-700 transition-colors">ResQNet</a>
+
+        <!-- Desktop Menu -->
+        <div class="hidden md:flex items-center space-x-6">
+          <a href="/" class="text-gray-600 hover:text-red-600">Home</a>
+
+          <% if (currentUser) { %>
+            <a href="/user/dashboard" class="text-gray-600 hover:text-red-600">Dashboard</a>
+            <a href="/logout" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-md transition">Logout</a>
+          <% } else { %>
+            <a href="/login" class="text-gray-600 hover:text-red-600">Login</a>
+            <a href="/register" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-md transition">Register</a>
+          <% } %>
+        </div>
+
+        <!-- Mobile Menu Button -->
+        <div class="md:hidden">
+          <button id="mobile-menu-button" class="text-gray-700 focus:outline-none">
+            <i class="fas fa-bars fa-lg"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Mobile Menu -->
+      <div id="mobile-menu" class="hidden md:hidden mt-4 space-y-3 text-center">
+        <a href="/" class="block text-gray-600 hover:text-red-600">Home</a>
+
+        <% if (currentUser) { %>
+          <a href="/user/dashboard" class="block text-gray-600 hover:text-red-600">Dashboard</a>
+          <a href="/logout" class="block bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-md">Logout</a>
+        <% } else { %>
+          <a href="/login" class="block text-gray-600 hover:text-red-600">Login</a>
+          <a href="/register" class="block bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-md">Register</a>
+        <% } %>
+      </div>
+    </nav>
+  </header>
+
+  <!-- ================= MAIN CONTENT ================= -->
+  <main class="container mx-auto px-6 py-8 flex-grow">
+    <%- body %>
+  </main>
+
+  <!-- ================= FOOTER ================= -->
+  <footer class="bg-white border-t mt-auto">
+    <div class="container mx-auto px-6 py-4 text-center text-gray-500">
+      <p>
+        &copy; <%= new Date().getFullYear() %>  — <span class="font-semibold">ResQNet</span>. 
+        All Rights Reserved.
+      </p>
+    </div>
+  </footer>
+
+  <!-- ================= SCRIPTS ================= -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // Toggle mobile menu visibility
+    const mobileBtn = document.getElementById('mobile-menu-button');
+    const mobileMenu = document.getElementById('mobile-menu');
+    if (mobileBtn && mobileMenu) {
+      mobileBtn.addEventListener('click', () => {
+        mobileMenu.classList.toggle('hidden');
+      });
+    }
+  </script>
+</body>
+</html>

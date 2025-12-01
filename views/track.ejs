@@ -1,0 +1,208 @@
+<div class="container mx-auto px-4 py-8">
+
+  <!-- 🧭 Header -->
+  <div class="mb-6">
+    <h1 class="text-3xl font-bold text-gray-800 flex items-center gap-2">🛰️ Live Emergency Tracking</h1>
+    <p class="text-gray-600 mt-1 text-sm">
+      Track emergency updates, ambulance movement, and hospital assignment in real-time.
+    </p>
+  </div>
+
+  <!-- 🚨 Emergency Details -->
+  <div class="bg-white p-6 shadow-md rounded-xl border border-gray-200 mb-8">
+    <h2 class="text-xl font-semibold text-gray-800 mb-3">Emergency Details</h2>
+
+    <div class="grid sm:grid-cols-2 gap-3 text-gray-700 text-sm">
+
+      <p><strong>Description:</strong> <%= emergency.description %></p>
+      <p><strong>Status:</strong> <span id="liveStatus" class="text-blue-700 font-semibold"><%= emergency.status %></span></p>
+
+      <p><strong>Reported at:</strong> <%= emergency.createdAt.toLocaleString() %></p>
+      <p><strong>Severity:</strong> <%= emergency.severity %></p>
+
+      <p><strong>Hospital:</strong> 
+        <% if (emergency.assignedHospital) { %>
+          <%= emergency.assignedHospital.name %>
+        <% } else { %>
+          <span class="text-yellow-600">Assigning…</span>
+        <% } %>
+      </p>
+
+      <p><strong>Ambulance:</strong>
+        <% if (emergency.assignedAmbulance) { %>
+          <%= emergency.assignedAmbulance.vehicleNumber || emergency.assignedAmbulance._id %>
+        <% } else { %>
+          <span class="text-yellow-600">Assigning…</span>
+        <% } %>
+      </p>
+
+      <p><strong>Estimated Time of Arrival (ETA):</strong>
+        <span id="etaText" class="font-semibold text-gray-800">
+          <%= emergency.eta || "Calculating…" %>
+        </span>
+      </p>
+
+    </div>
+
+    <!-- 🚦 Progress Indicator -->
+    <div class="mt-6">
+      <h3 class="font-semibold mb-2">🚦 Current Progress</h3>
+      <div class="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+        <div id="progressBar"
+             class="bg-gradient-to-r from-blue-500 to-blue-700 h-4 transition-all duration-700"
+             style="width: 15%;">
+        </div>
+      </div>
+      <p id="statusMessage" class="text-sm text-gray-600 mt-2">Initializing…</p>
+    </div>
+  </div>
+
+  <!-- 🗺️ MAP -->
+  <div class="bg-white p-4 rounded-xl shadow-md border border-gray-200">
+    <h2 class="text-xl font-semibold mb-3 text-gray-800">📍 Live Location</h2>
+    <div id="map" class="w-full h-[70vh] rounded-lg border border-gray-300"></div>
+  </div>
+
+</div>
+
+<!-- Leaflet + Socket.IO -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="/socket.io/socket.io.js"></script>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const socket = io();
+
+  const emergencyId = "<%= emergency._id %>";
+  const trackingToken = "<%= emergency.trackingToken %>";
+  // Join dedicated tracking room so we only receive relevant updates
+  socket.emit("joinRoom", trackingToken);
+  console.log("📡 Joined tracking room:", trackingToken);
+  const hasAmb = <%= emergency.assignedAmbulance ? "true" : "false" %>;
+  const hasHospital = <%= emergency.assignedHospital ? "true" : "false" %>;
+
+  // --------------------------------
+  // MAP SETUP
+  // --------------------------------
+
+  const lat = <%= emergency.location.coordinates[1] %>;
+  const lng = <%= emergency.location.coordinates[0] %>;
+
+  const map = L.map("map").setView([lat, lng], 14);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
+
+  // Emergency Marker
+  const emergencyMarker = L.marker([lat, lng]).addTo(map)
+    .bindPopup("🚨 Emergency Location")
+    .openPopup();
+
+  // Hospital
+  <% if (emergency.assignedHospital && emergency.assignedHospital.location) { %>
+    const hospitalMarker = L.marker(
+      [<%= emergency.assignedHospital.location.coordinates[1] %>, <%= emergency.assignedHospital.location.coordinates[0] %>],
+      { icon: L.icon({ iconUrl: "/images/hospital-icon.png", iconSize: [35, 35] }) }
+    )
+    .addTo(map)
+    .bindPopup("🏥 <%= emergency.assignedHospital.name %>");
+  <% } %>
+
+  // Ambulance (will be updated live)
+  let ambulanceMarker = null;
+
+  // ROUTE LINE
+  let routeLine = null;
+
+  // --------------------------------
+  // PROGRESS BAR LOGIC
+  // --------------------------------
+  const progressBar = document.getElementById("progressBar");
+  const statusMsg = document.getElementById("statusMessage");
+  const etaText = document.getElementById("etaText");
+
+  function updateProgress() {
+    if (!hasAmb && !hasHospital) {
+      progressBar.style.width = "20%";
+      statusMsg.textContent = "⏳ Assigning nearest ambulance and hospital…";
+    } else if (hasAmb && !hasHospital) {
+      progressBar.style.width = "45%";
+      statusMsg.textContent = "🚑 Ambulance assigned. Finding hospital…";
+    } else if (!hasAmb && hasHospital) {
+      progressBar.style.width = "45%";
+      statusMsg.textContent = "🏥 Hospital assigned. Finding ambulance…";
+    } else {
+      progressBar.style.width = "100%";
+      statusMsg.textContent = "🎉 Assistance dispatched!";
+    }
+  }
+
+  updateProgress();
+
+  // --------------------------------
+  // LIVE AMBULANCE UPDATES
+  // --------------------------------
+  socket.on("ambulance-location-update", (data) => {
+    if (data.emergencyId !== emergencyId) return;
+
+    const { lat, lng } = data.coordinates;
+
+    if (!ambulanceMarker) {
+      ambulanceMarker = L.marker([lat, lng], {
+        icon: L.icon({ iconUrl: "/images/ambulance-icon.png", iconSize: [35, 35] })
+      }).addTo(map);
+    } else {
+      ambulanceMarker.setLatLng([lat, lng]);
+    }
+
+    // Draw polyline route
+    const routePoints = [
+      [lat, lng],
+      [<%= emergency.location.coordinates[1] %>, <%= emergency.location.coordinates[0] %>],
+    ];
+
+    <% if (emergency.assignedHospital) { %>
+      routePoints.push([
+        <%= emergency.assignedHospital.location.coordinates[1] %>,
+        <%= emergency.assignedHospital.location.coordinates[0] %>
+      ]);
+    <% } %>
+
+    if (routeLine) map.removeLayer(routeLine);
+
+    routeLine = L.polyline(routePoints, {
+      color: "blue",
+      weight: 4,
+      opacity: 0.8
+    }).addTo(map);
+
+    map.fitBounds(routeLine.getBounds(), { padding: [50, 50] });
+  });
+
+  // --------------------------------
+  // STATUS UPDATE LIVE (normalized status-update event)
+  // --------------------------------
+  socket.on("status-update", (data) => {
+    if (!data || data.emergencyId !== emergencyId) return;
+    const { status, eta } = data;
+
+    document.getElementById("liveStatus").textContent = status;
+    statusMsg.textContent = "🚑 Emergency Status: " + status;
+
+    if (etaText && eta) {
+      etaText.textContent = eta;
+    }
+
+    // Basic UI mapping of progress based on status
+    if (status === "Dispatched") progressBar.style.width = "40%";
+    else if (status === "OnRoute") progressBar.style.width = "70%";
+    else if (
+      status === "Arrived" ||
+      status === "Admitted" ||
+      status === "Completed"
+    ) {
+      progressBar.style.width = "100%";
+    }
+  });
+
+});
+</script>

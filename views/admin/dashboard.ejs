@@ -1,0 +1,195 @@
+<div class="p-4">
+  <h2 class="text-xl font-bold mb-3">Admin Control Center</h2>
+
+  <!-- MAP -->
+  <div
+    id="controlMap"
+    class="w-full mb-5 rounded-md border border-gray-300 shadow-sm"
+    style="height: 420px; min-height: 320px; position: relative; overflow: hidden;"
+  ></div>
+
+  <!-- TABLE -->
+  <h3 class="text-lg font-semibold mb-2">Live Emergency Reports</h3>
+
+  <table class="table-auto w-full border-collapse border border-gray-300 text-sm">
+    <thead class="bg-gray-100">
+      <tr>
+        <th class="border px-2 py-2">ID</th>
+        <th class="border px-2 py-2">Description</th>
+        <th class="border px-2 py-2">Status</th>
+        <th class="border px-2 py-2">Hospital</th>
+        <th class="border px-2 py-2">Ambulance</th>
+        <th class="border px-2 py-2">Updated</th>
+      </tr>
+    </thead>
+
+    <tbody id="emergencyTable">
+      <tr id="loadingRow">
+        <td colspan="6" class="text-center py-3 text-gray-500">
+          Loading reports...
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+
+  const socket = io();
+  socket.emit("joinRoom", "control-center");
+  console.log("🛰️ Admin joined control-center");
+
+  // MAP INIT
+  const map = L.map('controlMap', {
+    zoomControl: true,
+  }).setView([15.866, 74.508], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19
+  }).addTo(map);
+
+  const emergencyMarkers = {};
+  const ambulanceMarkers = {};
+
+  // Ensure proper rendering when layout changes / window resizes
+  setTimeout(() => map.invalidateSize(), 150);
+  window.addEventListener("resize", () => {
+    map.invalidateSize();
+  });
+
+  // ===================================================
+  // 🚨 1. LOAD EMERGENCIES ON STARTUP
+  // ===================================================
+  fetch('/admin/all-emergencies')
+    .then(res => res.json())
+    .then(data => {
+      document.getElementById("loadingRow")?.remove();
+
+      data.forEach(e => {
+        addEmergencyRow(e);
+
+        if (e.location?.coordinates) {
+          const [lng, lat] = e.location.coordinates;
+
+          emergencyMarkers[e._id] = L.circleMarker([lat, lng], {
+            color: "red",
+            radius: 6
+          })
+          .addTo(map)
+          .bindPopup(`<b>${e.description}</b><br>Status: ${e.status}`);
+        }
+      });
+    })
+    .catch(err => console.error("Error loading emergencies:", err));
+
+
+  // ===================================================
+  // 🏥 2. LOAD HOSPITAL MARKERS
+  // ===================================================
+  fetch('/admin/options')
+    .then(res => res.json())
+    .then(data => {
+      if (data.hospitals && Array.isArray(data.hospitals)) {
+        data.hospitals.forEach(h => {
+          if (h.location?.coordinates) {
+            const [lng, lat] = h.location.coordinates;
+
+            L.marker([lat, lng], {
+              icon: L.icon({
+                iconUrl: '/images/hospital-icon.png',  // ⭐ USE PNG HERE
+                iconSize: [32, 32],
+                iconAnchor: [16, 16]
+              })
+            })
+            .addTo(map)
+            .bindPopup(`<b>${h.name}</b>`);
+          }
+        });
+      }
+    })
+    .catch(err => console.error("Error loading hospitals:", err));
+
+
+  // ===================================================
+  // 🆕 3. LIVE: NEW EMERGENCY
+  // ===================================================
+  socket.on("new-emergency", (e) => {
+    console.log("🆕 Live New Emergency:", e);
+
+    addEmergencyRow(e);
+
+    if (e.location?.coordinates) {
+      const [lng, lat] = e.location.coordinates;
+
+      emergencyMarkers[e._id] = L.circleMarker([lat, lng], {
+        color: "red",
+        radius: 6
+      })
+      .addTo(map)
+      .bindPopup(`<b>${e.description}</b><br>Status: ${e.status}`);
+    }
+  });
+
+
+  // ===================================================
+  // 🚑 4. LIVE: AMBULANCE MOVEMENT
+  // ===================================================
+  socket.on("ambulance-location-update", (data) => {
+    const { emergencyId, coordinates } = data;
+
+    if (!ambulanceMarkers[emergencyId]) {
+      ambulanceMarkers[emergencyId] = L.marker(
+        [coordinates.lat, coordinates.lng],
+        { 
+          icon: L.icon({ 
+            iconUrl: '/images/ambulance-icon.png',
+            iconSize: [26, 26],
+            iconAnchor: [13, 13]
+          })
+        }
+      ).addTo(map);
+    } else {
+      ambulanceMarkers[emergencyId].setLatLng([coordinates.lat, coordinates.lng]);
+    }
+  });
+
+
+  // ===================================================
+  // 🔄 5. LIVE STATUS UPDATE
+  // ===================================================
+  socket.on("status-update", (data) => {
+    const { emergencyId, status, updatedAt } = data;
+
+    const row = document.getElementById(`row-${emergencyId}`);
+    if (row) {
+      row.querySelector(".statusCell").textContent = status;
+      row.querySelector(".updateTimeCell").textContent = new Date(updatedAt).toLocaleString();
+    }
+  });
+
+
+  // ===================================================
+  // 📌 TABLE ROW BUILDER
+  // ===================================================
+  function addEmergencyRow(e) {
+    const tbody = document.getElementById("emergencyTable");
+
+    if (document.getElementById(`row-${e._id}`)) return;
+
+    const row = document.createElement("tr");
+    row.id = "row-" + e._id;
+
+    row.innerHTML = `
+      <td class="border px-2 py-2">${e._id}</td>
+      <td class="border px-2 py-2">${e.description}</td>
+      <td class="border px-2 py-2 statusCell">${e.status}</td>
+      <td class="border px-2 py-2">${e.assignedHospital?.name || "—"}</td>
+      <td class="border px-2 py-2">${e.assignedAmbulance?.vehicleNumber || "—"}</td>
+      <td class="border px-2 py-2 updateTimeCell">${new Date(e.updatedAt || e.createdAt).toLocaleString()}</td>
+    `;
+
+    tbody.prepend(row);
+  }
+
+});
+</script>
