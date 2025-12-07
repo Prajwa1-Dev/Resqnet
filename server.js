@@ -7,7 +7,8 @@ const http = require("http");
 const { Server } = require("socket.io");
 const { app, sessionMiddleware } = require("./app");
 const notifier = require("./utils/notifier");
-require("dotenv").config();
+// require("dotenv").config();
+require("dotenv").config({ path: ".env" });
 
 // -----------------------------
 // ⚙️ Create HTTP + Socket.IO Server
